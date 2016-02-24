@@ -10,7 +10,7 @@ public class Des {
     private static final int BLOCK_LENGTH = 64;
     private static final int SUBSTITUTION_BLOCK_LENGTH = 6;
     private static final int COUNT_OF_BIT_IN_SUBSTITUTION_BOX_NUMBER = 4;
-    private static final int ITERATION_COUNT = 16;
+    private static final int COUNT_OF_ROUNDS = 16;
 
     public String encode(String inputText, BitSet key){
         BitSet inputBitSet = DesConverter.convertFourCharactersLineToBitSet(inputText, BLOCK_LENGTH);
@@ -20,15 +20,19 @@ public class Des {
         BitSet rightPart = new BitSet(BLOCK_LENGTH / 2);
         initializeLeftAndRightParts(initialRearrangedBitSet, leftPart, rightPart);
 
-        for(int i = 0; i < ITERATION_COUNT; i++){
-            BitSet encryptedBitSet = encryption(rightPart, key);
+        BitSet[] roundKeys = getRoundKeys(key);
+
+        for(int i = 0; i < COUNT_OF_ROUNDS; i++){
+            BitSet encryptedBitSet = encryption(rightPart, roundKeys[i]);
             encryptedBitSet.xor(leftPart);
             leftPart = rightPart;
             rightPart = encryptedBitSet;
         }
+
         BitSet concatenatedParts = concatenation(leftPart, rightPart);
         BitSet finalBitSet = finalPermutation(concatenatedParts);
-        return null;
+
+        return DesConverter.BitSetToString(finalBitSet);
     }
 
     private BitSet initialPermutation(BitSet inputBitSet){
@@ -109,5 +113,36 @@ public class Des {
 
     private BitSet finalPermutation(BitSet input){
         return transposition(input, DesTables.finalPermutation);
+    }
+
+    private BitSet[] getRoundKeys(BitSet key){
+        BitSet keyWithoutCheckBits = removeCheckBits(key);
+        BitSet[] roundKeys = new BitSet[COUNT_OF_ROUNDS];
+
+        roundKeys[0] = desShiftKey(keyWithoutCheckBits, DesTables.keyRotations[0]);
+        roundKeys[0] = finalKeyProcessing(roundKeys[0]);
+        for(int i = 1; i < COUNT_OF_ROUNDS; i++){
+            roundKeys[i] = desShiftKey(roundKeys[i - 1], DesTables.keyRotations[i]);
+            roundKeys[i] = finalKeyProcessing(roundKeys[i]);
+        }
+        return roundKeys;
+    }
+
+    private BitSet removeCheckBits(BitSet key){
+        return transposition(key, DesTables.initialKeyPreparing);
+    }
+
+    private BitSet desShiftKey(BitSet key, int shiftSize){
+        BitSet newKey = new BitSet(key.length());
+        int halfLength = key.length() / 2;
+        for(int i = 0; i < halfLength; i++){
+            newKey.set(i, key.get((i + shiftSize) % halfLength));
+            newKey.set(i + halfLength, key.get((i + shiftSize) % halfLength + halfLength));
+        }
+        return newKey;
+    }
+
+    private BitSet finalKeyProcessing(BitSet key){
+        return transposition(key, DesTables.finalKeyProcessing);
     }
 }

@@ -23,4 +23,17 @@ public class DesConverter {
         return result;
     }
 
+    public static String BitSetToString(BitSet input){
+        StringBuilder result = new StringBuilder();
+        for(int i = 0; i < input.size(); i += 16){
+            char character = 0;
+            for(int j = 15; j >= 0; j--){
+                if(input.get(i + j)){
+                    character += (int) Math.pow(2, 15 - j);
+                }
+            }
+            result.append(character);
+        }
+        return result.toString();
+    }
 }
