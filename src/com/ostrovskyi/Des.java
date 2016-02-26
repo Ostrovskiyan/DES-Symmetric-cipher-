@@ -1,5 +1,7 @@
 package com.ostrovskyi;
 
+import java.lang.reflect.Array;
+import java.util.Arrays;
 import java.util.BitSet;
 
 /**
@@ -7,20 +9,70 @@ import java.util.BitSet;
  */
 public class Des {
 
+    public enum Mode{
+        ENCODE, DECODE
+    }
+
     private static final int BLOCK_LENGTH = 64;
     private static final int SUBSTITUTION_BLOCK_LENGTH = 6;
     private static final int COUNT_OF_BIT_IN_SUBSTITUTION_BOX_NUMBER = 4;
     private static final int COUNT_OF_ROUNDS = 16;
 
-    public String encode(String inputText, BitSet key){
-        BitSet inputBitSet = DesConverter.convertFourCharactersLineToBitSet(inputText, BLOCK_LENGTH);
+    private static final int LENGTH_OF_KEY_WITHOUT_CHECK_BITS = 56;
+    private static final int COUNT_OF_UNICODE_CHARACTERS_IN_BLOCK = 4;
+
+    public String encode(String inputText, String key){
+        return cipherAlgorithm(inputText, key, Mode.ENCODE);
+    }
+
+    public String decode(String inputText, String key){
+        return cipherAlgorithm(inputText, key, Mode.DECODE);
+    }
+
+    private String cipherAlgorithm(String inputText, String key, Mode mode){
+        char[] inputChars = inputText.toCharArray();
+        if(inputChars.length % COUNT_OF_UNICODE_CHARACTERS_IN_BLOCK != 0){
+            inputChars = addMissingCharacters(inputChars);
+        }
+
+        BitSet bitSetKey = DesConverter.stringHexKeyToBitSet(key);
+        BitSet[] roundKeys = getRoundKeys(bitSetKey);
+        if(mode.equals(Mode.DECODE)){
+            reverse(roundKeys);
+        }
+
+        StringBuilder result = new StringBuilder();
+        for(int i = 0; i < inputChars.length; i += COUNT_OF_UNICODE_CHARACTERS_IN_BLOCK){
+            result.append(encodeFourCharacterString(inputChars, i, roundKeys));
+        }
+        return result.toString();
+    }
+
+    private char[] addMissingCharacters(char[] inputChars){
+        int countMissingCharacters = COUNT_OF_UNICODE_CHARACTERS_IN_BLOCK -
+                (inputChars.length % COUNT_OF_UNICODE_CHARACTERS_IN_BLOCK);
+        char[] tempArray = Arrays.copyOf(inputChars, inputChars.length + countMissingCharacters);
+        for(int i = 0; i < countMissingCharacters; i++){
+            tempArray[i + inputChars.length] = ' ';
+        }
+        return tempArray;
+    }
+
+    private void reverse(BitSet[] bitSetArray){
+        for(int i = 0; i < bitSetArray.length / 2; i++){
+            BitSet temp = bitSetArray[i];
+            bitSetArray[i] = bitSetArray[bitSetArray.length - i - 1];
+            bitSetArray[bitSetArray.length - i - 1] = temp;
+        }
+    }
+
+    private String encodeFourCharacterString(char[] inputText, int startIndex, BitSet[] roundKeys){
+        BitSet inputBitSet = DesConverter.convertFourCharactersLineToBitSet(inputText, startIndex, BLOCK_LENGTH);
         BitSet initialRearrangedBitSet = initialPermutation(inputBitSet);
 
         BitSet leftPart = new BitSet(BLOCK_LENGTH / 2);
         BitSet rightPart = new BitSet(BLOCK_LENGTH / 2);
         initializeLeftAndRightParts(initialRearrangedBitSet, leftPart, rightPart);
-
-        BitSet[] roundKeys = getRoundKeys(key);
 
         for(int i = 0; i < COUNT_OF_ROUNDS; i++){
             BitSet encryptedBitSet = encryption(rightPart, roundKeys[i]);
@@ -29,9 +81,8 @@ public class Des {
             rightPart = encryptedBitSet;
         }
 
-        BitSet concatenatedParts = concatenation(leftPart, rightPart);
+        BitSet concatenatedParts = concatenation(rightPart, leftPart);
         BitSet finalBitSet = finalPermutation(concatenatedParts);
-
         return DesConverter.BitSetToString(finalBitSet);
     }
 
@@ -42,7 +93,7 @@ public class Des {
     private BitSet transposition(BitSet input, int[] table){
         BitSet result = new BitSet(table.length);
         for(int i = 0; i < table.length; i++){
-            result.set(i, input.get(table[i]));
+            result.set(i, input.get(table[i] - 1));
         }
         return result;
     }
@@ -91,7 +142,7 @@ public class Des {
 
     private void setSubstitutionBlockNumberInBitSet(BitSet bitSet, int startIndex, int number){
         for(int i = COUNT_OF_BIT_IN_SUBSTITUTION_BOX_NUMBER - 1; i >= 0; i--){
-            bitSet.set(startIndex + i, number % 2 == 0);
+            bitSet.set(startIndex + i, number % 2 == 1);
             number /= 2;
         }
     }
@@ -101,12 +152,12 @@ public class Des {
     }
 
     private BitSet concatenation(BitSet leftPart, BitSet rightPart){
-        BitSet result = new BitSet(leftPart.size() + rightPart.size());
-        for(int i = 0; i < leftPart.size(); i++){
+        BitSet result = new BitSet(BLOCK_LENGTH);
+        for(int i = 0; i < BLOCK_LENGTH / 2; i++){
             result.set(i, leftPart.get(i));
         }
-        for(int i = 0; i < rightPart.size(); i++){
-            result.set(i + leftPart.size(), rightPart.get(i));
+        for(int i = 0; i < BLOCK_LENGTH / 2; i++){
+            result.set(i + BLOCK_LENGTH / 2, rightPart.get(i));
         }
         return result;
     }
@@ -117,13 +168,14 @@ public class Des {
 
     private BitSet[] getRoundKeys(BitSet key){
         BitSet keyWithoutCheckBits = removeCheckBits(key);
+        BitSet[] shiftedKeys = new BitSet[COUNT_OF_ROUNDS];
         BitSet[] roundKeys = new BitSet[COUNT_OF_ROUNDS];
 
-        roundKeys[0] = desShiftKey(keyWithoutCheckBits, DesTables.keyRotations[0]);
-        roundKeys[0] = finalKeyProcessing(roundKeys[0]);
+        shiftedKeys[0] = desShiftKey(keyWithoutCheckBits, DesTables.keyRotations[0]);
+        roundKeys[0] = finalKeyProcessing(shiftedKeys[0]);
         for(int i = 1; i < COUNT_OF_ROUNDS; i++){
-            roundKeys[i] = desShiftKey(roundKeys[i - 1], DesTables.keyRotations[i]);
-            roundKeys[i] = finalKeyProcessing(roundKeys[i]);
+            shiftedKeys[i] = desShiftKey(shiftedKeys[i - 1], DesTables.keyRotations[i]);
+            roundKeys[i] = finalKeyProcessing(shiftedKeys[i]);
         }
         return roundKeys;
     }
@@ -133,11 +185,11 @@ public class Des {
     }
 
     private BitSet desShiftKey(BitSet key, int shiftSize){
-        BitSet newKey = new BitSet(key.length());
-        int halfLength = key.length() / 2;
+        BitSet newKey = new BitSet(LENGTH_OF_KEY_WITHOUT_CHECK_BITS);
+        int halfLength = LENGTH_OF_KEY_WITHOUT_CHECK_BITS / 2;
         for(int i = 0; i < halfLength; i++){
             newKey.set(i, key.get((i + shiftSize) % halfLength));
-            newKey.set(i + halfLength, key.get((i + shiftSize) % halfLength + halfLength));
+            newKey.set(i + halfLength, key.get(((i + shiftSize) % halfLength) + halfLength));
         }
         return newKey;
     }
